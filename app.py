@@ -3,23 +3,9 @@ import os
 import re
 import io
 import requests
-from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from bs4 import BeautifulSoup
 from langchain_groq import ChatGroq
-
-# =========================
-# LOAD ENV (Local Only)
-# =========================
-load_dotenv()
-
-# ✅ FIXED API KEY HANDLING (LOCAL + STREAMLIT CLOUD)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or st.secrets.get("OPENROUTER_API_KEY")
-
-if not GROQ_API_KEY and not OPENROUTER_API_KEY:
-    st.error("❌ Missing API keys. Please set them in Streamlit Secrets.")
-    st.stop()
 
 # =========================
 # STREAMLIT CONFIG
@@ -32,13 +18,19 @@ st.set_page_config(
 st.title("🏛️ Public Policy Insight & Impact Analyzer (PPIIA)")
 
 # =========================
+# GET API KEY (STREAMLIT CLOUD SAFE)
+# =========================
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+except Exception:
+    st.error("❌ GROQ_API_KEY not found. Please add it in Streamlit Secrets.")
+    st.stop()
+
+# =========================
 # SESSION STATE
 # =========================
 if "analysis" not in st.session_state:
     st.session_state.analysis = None
-
-if "model_used" not in st.session_state:
-    st.session_state.model_used = None
 
 # =========================
 # BILL VALIDATION
@@ -65,78 +57,32 @@ def extract_pdf(file):
             text += page.extract_text() + "\n"
     return text
 
-def extract_pdf_from_bytes(pdf_bytes):
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    text = ""
-    for page in reader.pages:
-        if page.extract_text():
-            text += page.extract_text() + "\n"
-    return text
-
 def extract_from_url(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/pdf,text/html"
-    }
-
+    headers = {"User-Agent": "Mozilla/5.0"}
     r = requests.get(url, headers=headers, timeout=20)
-    content_type = r.headers.get("Content-Type", "").lower()
 
-    if "application/pdf" in content_type or url.lower().endswith(".pdf"):
-        return extract_pdf_from_bytes(r.content)
+    if "application/pdf" in r.headers.get("Content-Type", "").lower():
+        reader = PdfReader(io.BytesIO(r.content))
+        text = ""
+        for page in reader.pages:
+            if page.extract_text():
+                text += page.extract_text() + "\n"
+        return text
 
-    if "text/html" in content_type:
-        soup = BeautifulSoup(r.text, "html.parser")
-        return soup.get_text(separator="\n")
-
-    raise ValueError("Unsupported URL format")
-
-# =========================
-# LLM CALLS
-# =========================
-def call_groq(prompt):
-    if not GROQ_API_KEY:
-        raise Exception("Groq key missing")
-
-    llm = ChatGroq(
-        model_name="llama-3.3-70b-versatile",
-        temperature=0.1,
-        max_tokens=3500,
-        groq_api_key=GROQ_API_KEY
-    )
-    return llm.invoke(prompt).content
-
-def call_openrouter(prompt):
-    if not OPENROUTER_API_KEY:
-        raise Exception("OpenRouter key missing")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "meta-llama/llama-3-8b-instruct",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 3500
-    }
-
-    res = requests.post(url, headers=headers, json=payload, timeout=30)
-
-    if res.status_code != 200:
-        raise Exception("OpenRouter API Error")
-
-    return res.json()["choices"][0]["message"]["content"]
+    soup = BeautifulSoup(r.text, "html.parser")
+    return soup.get_text(separator="\n")
 
 # =========================
-# AUTO SWITCH
+# LLM CALL
 # =========================
 def ask_llm(prompt):
-    try:
-        return call_groq(prompt), "Groq"
-    except Exception:
-        st.warning("⚠️ Groq failed → switching to OpenRouter")
-        return call_openrouter(prompt), "OpenRouter"
+    llm = ChatGroq(
+        groq_api_key=GROQ_API_KEY,
+        model_name="llama-3.3-70b-versatile",
+        temperature=0.1,
+        max_tokens=3000
+    )
+    return llm.invoke(prompt).content
 
 # =========================
 # USER INPUT
@@ -151,16 +97,12 @@ if input_type == "PDF Upload":
         bill_text = extract_pdf(file)
 
 elif input_type == "URL":
-    url = st.text_input("Enter Government Bill URL (PDF or Bill page)")
+    url = st.text_input("Enter Government Bill URL")
     if url:
-        try:
-            bill_text = extract_from_url(url)
-        except Exception as e:
-            st.error(f"❌ {e}")
-            st.stop()
+        bill_text = extract_from_url(url)
 
 # =========================
-# ANALYSIS GENERATION
+# ANALYSIS
 # =========================
 if bill_text:
 
@@ -168,16 +110,16 @@ if bill_text:
         st.error("❌ This does not appear to be a valid government bill.")
         st.stop()
 
-    st.success("✅ Valid government bill detected")
+    st.success("✅ Valid Government Bill Detected")
 
-    with st.expander("📜 Preview Extracted Text"):
+    with st.expander("📜 Preview"):
         st.text_area("Bill Text", bill_text[:3000], height=250)
 
-    if st.button("🔍 GENERATE ANALYSIS"):
-        with st.spinner("🤖 Analyzing bill..."):
+    if st.button("🔍 Generate Analysis"):
+        with st.spinner("Analyzing..."):
 
             PROMPT = f"""
-You are a public policy analyst.
+You are a Public Policy Analyst.
 
 Generate analysis using EXACT headers:
 
@@ -192,15 +134,12 @@ BILL TEXT:
 {bill_text[:12000]}
 """
 
-            analysis, model = ask_llm(PROMPT)
-            st.session_state.analysis = analysis
-            st.session_state.model_used = model
+            result = ask_llm(PROMPT)
+            st.session_state.analysis = result
 
 # =========================
 # DISPLAY
 # =========================
 if st.session_state.analysis:
-
-    st.success(f"✅ Analysis generated using {st.session_state.model_used}")
-
+    st.markdown("## 📊 Policy Analysis Report")
     st.write(st.session_state.analysis)
