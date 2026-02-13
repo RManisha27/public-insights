@@ -4,10 +4,7 @@ A simple AI-based web application that helps users understand Indian government 
 
 🌐 Live Application
 
-Live App: https://iuz97lgqvc5guym6vkax.streamlit.app
-
-GitHub Repo: https://github.com/akashsubramanian02/ppiia
-
+Live App:
 🎯 What This Project Does
 
 Government bills are usually long and hard to understand. This project:
@@ -75,3 +72,4 @@ Requests (URL handling)
 Git & GitHub (Version control)
 
 Streamlit Cloud (Deployment)
+
