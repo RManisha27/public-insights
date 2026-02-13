@@ -9,15 +9,16 @@ from bs4 import BeautifulSoup
 from langchain_groq import ChatGroq
 
 # =========================
-# LOAD ENV
+# LOAD ENV (Local Only)
 # =========================
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# ✅ FIXED API KEY HANDLING (LOCAL + STREAMLIT CLOUD)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or st.secrets.get("OPENROUTER_API_KEY")
 
-if not GROQ_API_KEY or not OPENROUTER_API_KEY:
-    st.error("❌ Missing API keys. Check your .env file.")
+if not GROQ_API_KEY and not OPENROUTER_API_KEY:
+    st.error("❌ Missing API keys. Please set them in Streamlit Secrets.")
     st.stop()
 
 # =========================
@@ -81,16 +82,9 @@ def extract_from_url(url):
     r = requests.get(url, headers=headers, timeout=20)
     content_type = r.headers.get("Content-Type", "").lower()
 
-    # ---- PDF URL ----
     if "application/pdf" in content_type or url.lower().endswith(".pdf"):
-        try:
-            return extract_pdf_from_bytes(r.content)
-        except Exception:
-            raise ValueError(
-                "PDF detected but could not be parsed. Please download and upload the PDF."
-            )
+        return extract_pdf_from_bytes(r.content)
 
-    # ---- HTML page (Bill page) ----
     if "text/html" in content_type:
         soup = BeautifulSoup(r.text, "html.parser")
         return soup.get_text(separator="\n")
@@ -101,14 +95,21 @@ def extract_from_url(url):
 # LLM CALLS
 # =========================
 def call_groq(prompt):
+    if not GROQ_API_KEY:
+        raise Exception("Groq key missing")
+
     llm = ChatGroq(
         model_name="llama-3.3-70b-versatile",
         temperature=0.1,
-        max_tokens=3500
+        max_tokens=3500,
+        groq_api_key=GROQ_API_KEY
     )
     return llm.invoke(prompt).content
 
 def call_openrouter(prompt):
+    if not OPENROUTER_API_KEY:
+        raise Exception("OpenRouter key missing")
+
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -119,7 +120,12 @@ def call_openrouter(prompt):
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 3500
     }
-    res = requests.post(url, headers=headers, json=payload, timeout=15)
+
+    res = requests.post(url, headers=headers, json=payload, timeout=30)
+
+    if res.status_code != 200:
+        raise Exception("OpenRouter API Error")
+
     return res.json()["choices"][0]["message"]["content"]
 
 # =========================
@@ -133,12 +139,9 @@ def ask_llm(prompt):
         return call_openrouter(prompt), "OpenRouter"
 
 # =========================
-# USER INPUT (PDF + URL ONLY)
+# USER INPUT
 # =========================
-input_type = st.radio(
-    "Select Input Type",
-    ["PDF Upload", "URL"]
-)
+input_type = st.radio("Select Input Type", ["PDF Upload", "URL"])
 
 bill_text = ""
 
@@ -154,13 +157,13 @@ elif input_type == "URL":
             bill_text = extract_from_url(url)
         except Exception as e:
             st.error(f"❌ {e}")
-            st.info("👉 Recommendation: Download the PDF and upload it directly.")
             st.stop()
 
 # =========================
 # ANALYSIS GENERATION
 # =========================
 if bill_text:
+
     if not is_valid_bill(bill_text):
         st.error("❌ This does not appear to be a valid government bill.")
         st.stop()
@@ -176,89 +179,28 @@ if bill_text:
             PROMPT = f"""
 You are a public policy analyst.
 
-Analyze the following government bill and generate outputs using EXACT section headers.
+Generate analysis using EXACT headers:
 
 SECTOR:
-- One main sector only
-
 SUMMARY:
-- 10 to 20 easy bullet points
-- Explain for normal citizens
-
 IMPACT:
-Citizens:
-- Bullet points
-Businesses:
-- Bullet points
-Government:
-- Bullet points
-
 POSITIVES:
-- Bullet points
-
 RISKS:
-- Bullet points
-
 BENEFICIARIES:
-- Bullet points
-
-RULES:
-- Use simple English
-- Do not hallucinate
-- If info missing, say so
 
 BILL TEXT:
 {bill_text[:12000]}
 """
+
             analysis, model = ask_llm(PROMPT)
             st.session_state.analysis = analysis
             st.session_state.model_used = model
 
 # =========================
-# DISPLAY + CHAT
+# DISPLAY
 # =========================
 if st.session_state.analysis:
 
     st.success(f"✅ Analysis generated using {st.session_state.model_used}")
 
-    tabs = st.tabs(["📊 Sector", "📝 Summary", "📈 Impact"])
-
-    with tabs[0]:
-        st.write(
-            re.search(r"SECTOR:(.*?)(SUMMARY:)", st.session_state.analysis, re.S)
-            .group(1)
-        )
-
-    with tabs[1]:
-        st.write(
-            re.search(r"SUMMARY:(.*?)(IMPACT:)", st.session_state.analysis, re.S)
-            .group(1)
-        )
-
-    with tabs[2]:
-        st.write(
-            re.search(r"IMPACT:(.*)", st.session_state.analysis, re.S)
-            .group(1)
-        )
-
-    st.markdown("---")
-    st.subheader("💬 Ask AI about this Bill")
-
-    user_q = st.text_input("Your question", key="user_question")
-
-    if user_q:
-        chat_prompt = f"""
-Answer ONLY from the analysis below.
-If answer not present, say so.
-
-ANALYSIS:
-{st.session_state.analysis}
-
-QUESTION:
-{user_q}
-"""
-        with st.spinner("🤖 Thinking..."):
-            reply, model = ask_llm(chat_prompt)
-
-        st.success(f"Answered using {model}")
-        st.write(reply)
+    st.write(st.session_state.analysis)
