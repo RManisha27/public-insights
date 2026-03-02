@@ -1,23 +1,19 @@
 import streamlit as st
-import os
 import re
 import io
 import requests
-from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from bs4 import BeautifulSoup
 from langchain_groq import ChatGroq
 
 # =========================
-# LOAD ENV
+# LOAD SECRETS (STREAMLIT CLOUD)
 # =========================
-load_dotenv()
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-if not GROQ_API_KEY or not OPENROUTER_API_KEY:
-    st.error("❌ Missing API keys. Check your .env file.")
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+    OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+except KeyError:
+    st.error("❌ Missing API keys. Add them in Streamlit → Settings → Secrets.")
     st.stop()
 
 # =========================
@@ -60,16 +56,18 @@ def extract_pdf(file):
     reader = PdfReader(file)
     text = ""
     for page in reader.pages:
-        if page.extract_text():
-            text += page.extract_text() + "\n"
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
     return text
 
 def extract_pdf_from_bytes(pdf_bytes):
     reader = PdfReader(io.BytesIO(pdf_bytes))
     text = ""
     for page in reader.pages:
-        if page.extract_text():
-            text += page.extract_text() + "\n"
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
     return text
 
 def extract_from_url(url):
@@ -81,16 +79,14 @@ def extract_from_url(url):
     r = requests.get(url, headers=headers, timeout=20)
     content_type = r.headers.get("Content-Type", "").lower()
 
-    # ---- PDF URL ----
+    # PDF
     if "application/pdf" in content_type or url.lower().endswith(".pdf"):
         try:
             return extract_pdf_from_bytes(r.content)
         except Exception:
-            raise ValueError(
-                "PDF detected but could not be parsed. Please download and upload the PDF."
-            )
+            raise ValueError("PDF detected but could not be parsed. Download and upload instead.")
 
-    # ---- HTML page (Bill page) ----
+    # HTML
     if "text/html" in content_type:
         soup = BeautifulSoup(r.text, "html.parser")
         return soup.get_text(separator="\n")
@@ -102,6 +98,7 @@ def extract_from_url(url):
 # =========================
 def call_groq(prompt):
     llm = ChatGroq(
+        groq_api_key=GROQ_API_KEY,
         model_name="llama-3.3-70b-versatile",
         temperature=0.1,
         max_tokens=3500
@@ -110,16 +107,25 @@ def call_groq(prompt):
 
 def call_openrouter(prompt):
     url = "https://openrouter.ai/api/v1/chat/completions"
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
+
     payload = {
         "model": "meta-llama/llama-3-8b-instruct",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
         "max_tokens": 3500
     }
-    res = requests.post(url, headers=headers, json=payload, timeout=15)
+
+    res = requests.post(url, headers=headers, json=payload, timeout=20)
+
+    if res.status_code != 200:
+        raise Exception("OpenRouter API Error")
+
     return res.json()["choices"][0]["message"]["content"]
 
 # =========================
@@ -133,12 +139,9 @@ def ask_llm(prompt):
         return call_openrouter(prompt), "OpenRouter"
 
 # =========================
-# USER INPUT (PDF + URL ONLY)
+# USER INPUT
 # =========================
-input_type = st.radio(
-    "Select Input Type",
-    ["PDF Upload", "URL"]
-)
+input_type = st.radio("Select Input Type", ["PDF Upload", "URL"])
 
 bill_text = ""
 
@@ -210,6 +213,7 @@ RULES:
 BILL TEXT:
 {bill_text[:12000]}
 """
+
             analysis, model = ask_llm(PROMPT)
             st.session_state.analysis = analysis
             st.session_state.model_used = model
@@ -224,22 +228,16 @@ if st.session_state.analysis:
     tabs = st.tabs(["📊 Sector", "📝 Summary", "📈 Impact"])
 
     with tabs[0]:
-        st.write(
-            re.search(r"SECTOR:(.*?)(SUMMARY:)", st.session_state.analysis, re.S)
-            .group(1)
-        )
+        match = re.search(r"SECTOR:(.*?)(SUMMARY:)", st.session_state.analysis, re.S)
+        st.write(match.group(1).strip() if match else "Section not found.")
 
     with tabs[1]:
-        st.write(
-            re.search(r"SUMMARY:(.*?)(IMPACT:)", st.session_state.analysis, re.S)
-            .group(1)
-        )
+        match = re.search(r"SUMMARY:(.*?)(IMPACT:)", st.session_state.analysis, re.S)
+        st.write(match.group(1).strip() if match else "Section not found.")
 
     with tabs[2]:
-        st.write(
-            re.search(r"IMPACT:(.*)", st.session_state.analysis, re.S)
-            .group(1)
-        )
+        match = re.search(r"IMPACT:(.*)", st.session_state.analysis, re.S)
+        st.write(match.group(1).strip() if match else "Section not found.")
 
     st.markdown("---")
     st.subheader("💬 Ask AI about this Bill")
