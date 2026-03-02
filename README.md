@@ -4,7 +4,8 @@ A simple AI-based web application that helps users understand Indian government 
 
 🌐 Live Application
 
-Live App:
+Live App: https://iuz97lgqvc5guym6vkax.streamlit.app
+
 🎯 What This Project Does
 
 public-insights-zueqpzdpeq2kkb5fx95cll
@@ -74,5 +75,6 @@ Requests (URL handling)
 Git & GitHub (Version control)
 
 Streamlit Cloud (Deployment)
+
 
 
