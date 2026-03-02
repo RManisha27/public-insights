@@ -4,11 +4,9 @@ A simple AI-based web application that helps users understand Indian government 
 
 🌐 Live Application
 
-Live App: https://iuz97lgqvc5guym6vkax.streamlit.app
+Live App: https://manisharavi-public-insights.streamlit.app
 
 🎯 What This Project Does
-
-public-insights-zueqpzdpeq2kkb5fx95cll
 
 Government bills are usually long and hard to understand. This project:
 
@@ -75,6 +73,7 @@ Requests (URL handling)
 Git & GitHub (Version control)
 
 Streamlit Cloud (Deployment)
+
 
 
 
