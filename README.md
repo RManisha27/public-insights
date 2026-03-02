@@ -4,7 +4,7 @@ A simple AI-based web application that helps users understand Indian government 
 
 🌐 Live Application
 
-Live App: https://manisharavi-public-insights.streamlit.app
+Live App: https://public-insights-zueqpzdpeq2kkb5fx95cll.streamlit.app
 
 🎯 What This Project Does
 
@@ -73,6 +73,7 @@ Requests (URL handling)
 Git & GitHub (Version control)
 
 Streamlit Cloud (Deployment)
+
 
 
 
