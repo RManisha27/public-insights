@@ -7,6 +7,8 @@ A simple AI-based web application that helps users understand Indian government 
 Live App:
 🎯 What This Project Does
 
+public-insights-zueqpzdpeq2kkb5fx95cll
+
 Government bills are usually long and hard to understand. This project:
 
 Converts complex bills into simple English explanations
@@ -72,4 +74,5 @@ Requests (URL handling)
 Git & GitHub (Version control)
 
 Streamlit Cloud (Deployment)
+
 
